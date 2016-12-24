@@ -31,8 +31,7 @@ class DataIter(object):
         self.batch = None
         ## the queue for get batch task
         self.batch_queue = Queue(1)
-        self.batch_queue.put_nowait('init')
-        ## the queue for get data task
+        ## the queue for get data task:w:
         self.data_queue = Queue(1)
         self.data_queue.put_nowait('init')
         self.load_data()
@@ -54,16 +53,19 @@ class DataIter(object):
         self.data_queue.get(block=True, timeout=self.life)
         print 'check'
         assert(self.batch_size < self.data.shape[0])
+        self.batch_queue.put_nowait('loading')
         idx = np.random.choice(self.data.shape[0], self.batch_size)
         self.batch_queue.get_nowait()
         self.batch = self.data[idx]
-        self.counter = (self.counter + 1) % self.max_iters
+        # self.counter = (self.counter + 1) % self.max_iters
         self.batch_queue.put_nowait('loaded')
         self.data_queue.put_nowait('xuming')
+        print 'loaded'
         return None
 
     def next_batch(self):
         self.counter = (self.counter + 1) % self.max_iters
+        print self.counter 
         self.batch_queue.get(block=True, timeout=self.life) 
         if self.counter == 0:
             Process(target=self.load_data).start()
