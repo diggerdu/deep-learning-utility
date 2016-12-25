@@ -9,10 +9,10 @@
 
 import os
 import gc
-from multiprocessing import Process
-from Queue import Queue
+import threading
 import numpy as np
-
+import time
+from multiprocessing import Pipe
 
 class DataIter(object):
     def __init__(self, data_path, max_iters=512, batch_size=128, life=59):
@@ -28,49 +28,53 @@ class DataIter(object):
         self.max_iters = max_iters
         self.data_idx = 0
         self.data = None
+        self.alter_data = None
         self.batch = None
-        ## the queue for get batch task
-        self.batch_queue = Queue(1)
-        ## the queue for get data task:w:
-        self.data_queue = Queue(1)
-        self.data_queue.put_nowait('init')
-        self.load_data()
-        self.prepare_batch()
+        self.batch_thread = threading.Thread(target=self.prepare_batch)
+        self.data_thread = threading.Thread(target=self.load_data)
+        self.safe_flag = True
+        self.data_thread.start()
+        self.data_thread.join()
+        
+        self.batch_thread.start()
         return None
 
     def load_data(self):
         self.data_idx = self.data_idx % self.data_num 
-        self.data_queue.get(False)
-        self.data = None
+        self.alter_data = np.load(self.file_list[self.data_idx])
+        self.safe_flag = False
+        self.data = self.alter_data
+        self.safe_flag = True
+        self.alter_data = None
         gc.collect()
-        self.data = np.load(self.file_list[self.data_idx])
-        self.data_queue.put_nowait('loaded')
         self.data_idx += 1
         return None
 
     def prepare_batch(self):
-        print 'OK'
-        self.data_queue.get(block=True, timeout=self.life)
-        print 'check'
+        while not self.safe_flag:
+            pass
         assert(self.batch_size < self.data.shape[0])
-        self.batch_queue.put_nowait('loading')
         idx = np.random.choice(self.data.shape[0], self.batch_size)
-        self.batch_queue.get_nowait()
         self.batch = self.data[idx]
-        # self.counter = (self.counter + 1) % self.max_iters
-        self.batch_queue.put_nowait('loaded')
-        self.data_queue.put_nowait('xuming')
-        print 'loaded'
         return None
 
     def next_batch(self):
-        self.counter = (self.counter + 1) % self.max_iters
-        print self.counter 
-        self.batch_queue.get(block=True, timeout=self.life) 
+        self.counter = (self.counter + 1) 
         if self.counter == 0:
-            Process(target=self.load_data).start()
-        return ([self.batch, Process(target=self.prepare_batch).start()][0])
+            self.data_thread.join()
+            self.data_thread = threading.Thread(target=self.load_data)
+            self.data_thread.start()
+
+        self.batch_thread.join()
+        self.batch_thread = threading.Thread(target=self.prepare_batch)
+        return ([self.batch, self.batch_thread.start()][0])
 
 
 
-
+if __name__ == '__main__':
+    s = time.time()
+    t = DataIter('./test/')
+    for i in range(1000):
+        tmp = t.next_batch()
+        time.sleep(0.1)
+    print time.time() - s
